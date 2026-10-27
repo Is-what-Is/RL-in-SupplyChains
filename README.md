@@ -366,3 +366,39 @@ The trained DQN agent will be compared using a time-series of the reward functio
 * DQN policy
 
 Finally, to test whether the agent has learnt a generalisable policy it will be evaluated against a simulation where all three disruptions occur randomly.  
+
+## Streamlit app
+
+A separate, interactive app that optimises a single manufacturer under normal conditions (no disruptions). It doesn't use the DQN code.
+
+| File | Contents |
+|---|---|
+| [`sc_model.py`](sc_model.py) | Simulation, optimisation and theory (numpy/scipy only). A comment block at the top lists every difference from `supply_chain_sim.py`. |
+| [`supply_chain_simulation_app.py`](supply_chain_simulation_app.py) | The Streamlit UI. |
+| [`tests/test_sc_model.py`](tests/test_sc_model.py) | Sanity tests against theory and a brute-force optimiser. |
+
+### Running it
+
+```bash
+pip install -r requirements.txt
+streamlit run supply_chain_simulation_app.py
+```
+
+`requirements.txt` lists only the app's dependencies (streamlit, numpy, pandas, scipy, plotly), which keeps a deployment well under 1 GB. The DQN project still installs its own dependencies with the `pip install` command under [Installation](#installation). To run the tests, also install `pytest` and run `pytest tests/`.
+
+### What it demonstrates
+
+The manufacturer orders with the POUT policy from above, generalised to a review cadence of c days (daily, weekly or monthly) and random lead times L ~ max(1, round(N(μ_L, σ_L))):
+
+```math
+O_t = max(0, round(c\mu_D + \frac{1}{T}(ss - NS_t) + \frac{1}{T}(\mu_L\mu_D - WIP_t)))
+```
+
+Here $NS_t$ is net stock (inventory − backlog) and $WIP_t$ is the sum of orders placed but not yet received. Each order is produced evenly over the next c days. Daily cost is holding $h \cdot I$ + backlog $b \cdot B$ + production $u \cdot P$ + overtime $w \cdot max(0, P-k)$ + idle capacity $u \cdot max(0, k-P)$.
+
+1. **The T trade-off.** Small T reacts hard to every deviation. It holds net stock tight (low NSAmp) but amplifies orders (Bullwhip = 1/(2T−1)). Large T smooths production but lets inventory drift. The sweep chart shows both against T, along with the resulting cost.
+2. **Safety stock (ss)** buffers demand and lead-time uncertainty. The optimum is the smallest ss that meets the target fill rate, or the newsvendor quantile b/(b+h) of net stock if that is larger. It is shown next to King's formula.
+3. **Capacity (k)** buffers order variability. The cost-minimising k is the w/(w+u) quantile of daily production, which matches μ_D + z·σ_P.
+4. **Cadence damping.** Ordering every c days spreads each order over c days of production, so daily production variance falls by a factor of c. The trade-off is more cycle stock to hold.
+
+**Optimise** finds (ss\*, k\*, T\*). For each T on a 0.1–10 grid it simulates 30 replications of 365 days (after a warm-up) with common random numbers, then refines T* with a bounded scalar search. Orders don't depend on ss, so ss and k are solved in closed form or by bisection for each T. **Edit** unlocks the parameters, and **Run** simulates one year with them, shows the cost against the optimum on the same random numbers, and offers the run as a CSV.
