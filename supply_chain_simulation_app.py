@@ -136,9 +136,9 @@ def run_figure(df, c, k, fill_target):
                   annotation_text=f"target {fill_target:.2f}", annotation_position="bottom left",
                   annotation_font_color=GREY)
 
-    for name, color in [("holding_cost", BLUE), ("backlog_cost", ORANGE), ("production_cost", AQUA),
-                        ("overtime_cost", YELLOW), ("idle_cost", MAGENTA)]:
-        add(4, "legend4", df[name], name.replace("_cost", "").capitalize(), color,
+    for name, color in [("holding_cost", BLUE), ("backlog_cost", ORANGE),
+                        ("reserved_capacity_cost", AQUA), ("overtime_cost", YELLOW)]:
+        add(4, "legend4", df[name], name.replace("_cost", "").replace("_", " ").capitalize(), color,
             stackgroup="cost", width=0.5)
 
     add(5, "legend5", df["cumulative_cost"], "Cumulative cost", BLUE, width=2, showlegend=False)
@@ -189,14 +189,14 @@ with left:
         col_a, col_b = st.columns(2)
         with col_a:
             ranged_input("Holding cost h", "Range: 1–10 per unit/day", "h", min_value=1.0, max_value=10.0, step=0.5)
-            ranged_input("Unit production cost u", "Range: 1–10, u < w", "u", min_value=1.0, max_value=10.0, step=0.5)
+            ranged_input("Capacity cost u", "Range: 1–10 per unit of capacity/day, u < w", "u", min_value=1.0, max_value=10.0, step=0.5)
         with col_b:
             ranged_input("Backlog cost b", "Range: 1–10 per unit/day", "b", min_value=1.0, max_value=10.0, step=0.5)
-            ranged_input("Overtime premium w", "Range: 1–10, w > u", "w", min_value=1.0, max_value=10.0, step=0.5)
+            ranged_input("Overtime cost w", "Range: 1–10 per overtime unit, w > u", "w", min_value=1.0, max_value=10.0, step=0.5)
 
         costs_valid = st.session_state.u < st.session_state.w
         if not costs_valid:
-            st.error("Unit production cost u must be less than the overtime premium w.")
+            st.error("Capacity cost u must be less than the overtime cost w.")
 
         with st.expander("Advanced"):
             st.number_input("Random seed", key="seed", min_value=0, step=1)
@@ -246,7 +246,7 @@ with left:
                          f"{st.session_state.T:.2f} (needs T > 0.5)")
         else:
             k_caption = (f"Theoretical capacity = μd + z·σP = **{th['k_theory']:.2f}** "
-                         f"(z = Φ⁻¹(w/(w+u)) = {th['z_k']:.3f}, σP = {th['sigma_P']:.2f} at T = "
+                         f"(z = Φ⁻¹(1 − u/w) = {th['z_k']:.3f}, σP = {th['sigma_P']:.2f} at T = "
                          f"{st.session_state.T:.2f})")
         st.caption(k_caption)
         st.number_input("Capacity k (units/day)", key="k", min_value=0.0, step=0.5, disabled=locked)

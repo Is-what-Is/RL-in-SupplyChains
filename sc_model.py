@@ -54,7 +54,9 @@ DIFFERENCES FROM supply_chain_sim.py (the earlier DQN project)
 12. Orders are capped at ORDER_CAP_FACTOR * c * mu_d. This never binds for
     stable T (> 0.5); it only stops unstable runs (T <= 0.5) overflowing.
 13. New: production smoothing, capacity, the cost model, warm-up, theory
-    and optimisation.
+    and optimisation. Capacity cost per day is u*k + w*max(0, P - k): every
+    unit of capacity costs u whether used or not, and every unit produced
+    above capacity costs w (overtime).
 =============================================================================
 """
 
@@ -84,8 +86,8 @@ class SCInputs:
     fill_target: float = 0.95   # target fill rate
     h: float = 1.0              # holding cost per unit per day
     b: float = 9.0              # backlog cost per unit per day
-    u: float = 2.0              # unit production cost
-    w: float = 4.0              # overtime premium per unit
+    u: float = 2.0              # cost per unit of capacity per day
+    w: float = 4.0              # cost per unit of overtime production (w > u)
     horizon: int = 365          # reported days after warm-up
 
 
@@ -220,8 +222,14 @@ def _fill_rate(ns_prev0, arrivals, demand, ss):
     return float(np.mean(fi.sum(axis=1) / demand.sum(axis=1)))
 
 
+def capacity_ratio(inputs):
+    """Critical ratio for capacity: adding a unit of k costs u every day and
+    saves w on overtime days, so the optimum has Pr(P > k) = u/w."""
+    return 1 - inputs.u / inputs.w
+
+
 def _capacity_cost(production, k, u, w):
-    return u * production + w * np.maximum(0, production - k) + u * np.maximum(0, k - production)
+    return u * k + w * np.maximum(0, production - k)
 
 
 def _mean_total_cost(ns0, production, ss, k, inputs):
@@ -262,10 +270,9 @@ def simulate_run(inputs, c, ss, k, T, seed=42):
     df["fill_rate_cumulative"] = df["fulfilled_immediate"].cumsum() / df["demand"].cumsum().replace(0, np.nan)
     df["holding_cost"] = inputs.h * df["inventory"]
     df["backlog_cost"] = inputs.b * df["backlog"]
-    df["production_cost"] = inputs.u * df["production"]
+    df["reserved_capacity_cost"] = inputs.u * k
     df["overtime_cost"] = inputs.w * (df["production"] - k).clip(lower=0)
-    df["idle_cost"] = inputs.u * (k - df["production"]).clip(lower=0)
-    df["capacity_cost"] = df["production_cost"] + df["overtime_cost"] + df["idle_cost"]
+    df["capacity_cost"] = df["reserved_capacity_cost"] + df["overtime_cost"]
     df["total_cost"] = df["holding_cost"] + df["backlog_cost"] + df["capacity_cost"]
     df["cumulative_cost"] = df["total_cost"].cumsum()
     return df
@@ -295,12 +302,13 @@ def theory(inputs, c, T):
         the fill-rate-constrained optimum.
     Bullwhip: 1/(2T - 1) for POUT with a mean forecast and equal feedback
         gains (T > 0.5), independent of the lead time.
-    k:  mu_d + Phi^-1(w/(w+u)) * sigma_P, None when T <= 0.5 (unstable).
+    k:  mu_d + Phi^-1(1 - u/w) * sigma_P, None when T <= 0.5 (unstable).
+        k sits below mean production when w < 2u and above it when w > 2u.
     """
     z_ss = float(norm.ppf(inputs.fill_target))
     R = 0 if c == 1 else c
     ss_theory = z_ss * np.sqrt((inputs.mu_L + R) * inputs.sigma_d ** 2 + (inputs.sigma_L * inputs.mu_d) ** 2)
-    z_k = float(norm.ppf(inputs.w / (inputs.w + inputs.u)))
+    z_k = float(norm.ppf(capacity_ratio(inputs)))
 
     if T > 0.5:
         bullwhip = 1 / (2 * T - 1)
@@ -319,7 +327,7 @@ def theory(inputs, c, T):
 # -----------------------------------------------------------------------------
 # Orders, production and Bullwhip depend only on T, and NS(ss) = NS(0) + ss.
 # So for each T: simulate once with ss = 0, then
-#   k*(T)  = w/(w+u) quantile of pooled daily production
+#   k*(T)  = (1 - u/w) quantile of pooled daily production
 #   ss*(T) = b/(b+h) quantile of pooled -NS(0) (rounded up), raised by integer
 #            bisection until the mean fill rate meets the target
 # and price (ss*, k*) exactly from the stored arrays.
@@ -360,7 +368,7 @@ def _evaluate_rows(inputs, c, T_values, demand, lead, W):
             dem = out["demand"][r, W:]
             prod = out["production"][r, W:]
 
-            k_star = float(np.quantile(prod, inputs.w / (inputs.w + inputs.u)))
+            k_star = float(np.quantile(prod, capacity_ratio(inputs)))
             ss_star = _optimal_ss(ns0, ns_prev0, arr, dem, inputs)
             bw, nsamp = _block_metrics(out["order"][r, W:], ns0 + ss_star, dem, c)
             results.append({

@@ -77,6 +77,30 @@ def test_capacity_matches_theory(T, c):
     assert row["k_star_T"] == pytest.approx(th["k_theory"], abs=0.1 * th["sigma_P"] + 0.1)
 
 
+@pytest.mark.parametrize("u, w", [(2.0, 3.0), (2.0, 4.0), (2.0, 7.0)])
+def test_capacity_side_of_median_and_brute_force(u, w):
+    # Capacity cost u*k + w*max(0, P - k): k* is the (1 - u/w) quantile, so it
+    # sits below median production when w < 2u and above it when w > 2u.
+    inputs, c, T = m.SCInputs(u=u, w=w), 7, 2.0
+    W = m.warmup_days(inputs, c)
+    demand, lead = m.draw_randomness(inputs, W + inputs.horizon, m.N_REPS, 3)
+    k_star = m._evaluate_rows(inputs, c, [T], demand, lead, W)[0]["k_star_T"]
+    prod = m._simulate_core(inputs, c, np.full(m.N_REPS, T), 0, demand, lead)["production"][:, W:]
+
+    median = np.median(prod)
+    if w < 2 * u:
+        assert k_star < median
+    elif w > 2 * u:
+        assert k_star > median
+    else:
+        assert k_star == pytest.approx(median, abs=0.05)
+
+    k_grid = np.arange(40, 60, 0.01)
+    costs = [m._capacity_cost(prod, k, u, w).sum(axis=1).mean() for k in k_grid]
+    best = m._capacity_cost(prod, k_star, u, w).sum(axis=1).mean()
+    assert best <= min(costs) + 1e-6
+
+
 def test_theory_unstable_returns_none():
     th = m.theory(m.SCInputs(), 1, 0.5)
     assert th["k_theory"] is None and th["bullwhip_theory"] is None
