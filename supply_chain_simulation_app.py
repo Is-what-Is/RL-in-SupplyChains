@@ -107,9 +107,9 @@ def sweep_figure(opt):
 
 def run_figure(df, c, k, fill_target):
     titles = ("Demand, orders and production (units/day)", "Inventory and backlog",
-              "Cumulative fill rate", "Daily cost by component", "Cumulative cost")
-    fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.045,
-                        subplot_titles=titles, row_heights=[1.2, 1, 0.7, 1, 0.8])
+              "Cumulative fill rate", "Daily cost by component")
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.055,
+                        subplot_titles=titles, row_heights=[1.2, 1, 0.7, 1])
 
     def add(row, legend, y, name, color, **kw):
         fig.add_trace(go.Scatter(x=df["day"], y=y, name=name, legend=legend,
@@ -141,15 +141,13 @@ def run_figure(df, c, k, fill_target):
         add(4, "legend4", df[name], name.replace("_cost", "").replace("_", " ").capitalize(), color,
             stackgroup="cost", width=0.5)
 
-    add(5, "legend5", df["cumulative_cost"], "Cumulative cost", BLUE, width=2, showlegend=False)
-
     # One legend per subplot, pinned to the top-right of its row
     for row, legend in [(1, "legend"), (2, "legend2"), (4, "legend4")]:
         axis = fig.layout["yaxis" if row == 1 else f"yaxis{row}"]
         fig.update_layout({legend: dict(x=1, xanchor="right", y=axis.domain[1], yanchor="top",
                                         orientation="h", traceorder="normal", bgcolor="rgba(0,0,0,0)")})
-    fig.update_xaxes(title_text="Day (after warm-up)", row=5, col=1)
-    fig.update_layout(height=1100, hovermode="x unified", margin=dict(t=40, b=40, l=10, r=10))
+    fig.update_xaxes(title_text="Day (after warm-up)", row=4, col=1)
+    fig.update_layout(height=900,hovermode="x unified", margin=dict(t=40, b=40, l=10, r=10))
     return fig
 
 
